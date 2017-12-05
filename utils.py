@@ -28,6 +28,17 @@ def preprocess_minimap(minimap):
       layers.append(layer)
   return np.concatenate(layers, axis=0)
 
+def _subsample(self, a, average_width):
+  s = a.shape
+  sh = s[0]//average_width, average_width, s[1]//average_width, average_width
+  return a.reshape(sh).mean(-1).mean(1)
+
+def _calc_pixel_change(self, state, last_state):
+  d = np.absolute(state[2:-2,2:-2,:] - last_state[2:-2,2:-2,:])
+  # (80,80,3)
+  m = np.mean(d, 2)
+  c = self._subsample(m, 4)
+  return c
 
 def preprocess_screen(screen):
   layers = []

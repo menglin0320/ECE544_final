@@ -104,6 +104,18 @@ def build_fcn(minimap, screen, info, msize, ssize, num_action):
 
   # Compute spatial actions
   feat_conv = tf.concat([mconv2, sconv2], axis=3)
+  # Compute non spatial actions and value
+  feat_fc = tf.concat([layers.flatten(mconv2), layers.flatten(sconv2), info_fc], axis=1)
+  feat_fc = layers.fully_connected(feat_fc,
+                                   num_outputs=256,
+                                   activation_fn=tf.nn.relu,
+                                   scope='feat_fc')
+
+
+def build_pc_part2():
+  
+  
+def build_a3c_part2(feat_conv,feat_fc):
   spatial_action = layers.conv2d(feat_conv,
                                  num_outputs=1,
                                  kernel_size=1,
@@ -112,12 +124,6 @@ def build_fcn(minimap, screen, info, msize, ssize, num_action):
                                  scope='spatial_action')
   spatial_action = tf.nn.softmax(layers.flatten(spatial_action))
 
-  # Compute non spatial actions and value
-  feat_fc = tf.concat([layers.flatten(mconv2), layers.flatten(sconv2), info_fc], axis=1)
-  feat_fc = layers.fully_connected(feat_fc,
-                                   num_outputs=256,
-                                   activation_fn=tf.nn.relu,
-                                   scope='feat_fc')
   non_spatial_action = layers.fully_connected(feat_fc,
                                               num_outputs=num_action,
                                               activation_fn=tf.nn.softmax,

@@ -78,7 +78,7 @@ def run_thread(agent, map_name, visualize):
     minimap_size_px=(FLAGS.minimap_resolution, FLAGS.minimap_resolution),
     visualize=visualize) as env:
     env = available_actions_printer.AvailableActionsPrinter(env)
-
+    #TODO don't discard replay_buffer, sample (20) from (2000)
     # Only for a single player!
     replay_buffer = []
     for recorder, is_done in run_loop([agent], env, MAX_AGENT_STEPS):
