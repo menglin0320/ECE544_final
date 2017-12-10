@@ -81,6 +81,7 @@ def run_thread(agent, map_name, visualize):
     #TODO don't discard replay_buffer, sample (20) from (2000)
     # Only for a single player!
     replay_buffer = []
+    pc_buffer = deque()
     for recorder, is_done in run_loop([agent], env, MAX_AGENT_STEPS):
       if FLAGS.training:
         replay_buffer.append(recorder)

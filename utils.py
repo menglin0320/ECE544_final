@@ -79,3 +79,18 @@ def screen_channel():
     else:
       c += features.SCREEN_FEATURES[i].scale
   return c
+
+def random_run():
+  act_id = np.random.choice(valid_actions)
+
+  dy = np.random.randint(-4, 5)
+  target[0] = int(max(0, min(self.ssize-1, target[0]+dy)))
+  dx = np.random.randint(-4, 5)
+  target[1] = int(max(0, min(self.ssize-1, target[1]+dx)))
+  act_args = []
+    for arg in actions.FUNCTIONS[act_id].args:
+      if arg.name in ('screen', 'minimap', 'screen2'):
+        act_args.append([target[1], target[0]])
+      else:
+        act_args.append([0])  # TODO: Be careful
+  return actions.FunctionCall(act_id, act_args)
