@@ -22,6 +22,7 @@ class A3CAgent(object):
     assert msize == ssize
     self.msize = msize
     self.ssize = ssize
+    self.pcsize = 20
     self.isize = len(actions.FUNCTIONS)
 
 
@@ -49,6 +50,7 @@ class A3CAgent(object):
       # Set inputs of networks
       self.minimap = tf.placeholder(tf.float32, [None, U.minimap_channel(), self.msize, self.msize], name='minimap')
       self.screen = tf.placeholder(tf.float32, [None, U.screen_channel(), self.ssize, self.ssize], name='screen')
+      self.pixel_change = tf.placeholder(tf.float32, [None, self.pcsize, self.pcsize], name='pixel_change')
       self.info = tf.placeholder(tf.float32, [None, self.isize], name='info')
 
       # Build networks
@@ -179,7 +181,8 @@ class A3CAgent(object):
     non_spatial_action_selected = np.zeros([len(rbs), len(actions.FUNCTIONS)], dtype=np.float32)
 
     rbs.reverse()
-    for i, [obs, action, next_obs] in enumerate(rbs):
+    for i, [obs, action, pixel_change, next_obs] in enumerate(rbs):
+      # added pixel change to update function, just directly put it into the feed dict
       minimap = np.array(obs.observation['minimap'], dtype=np.float32)
       minimap = np.expand_dims(U.preprocess_minimap(minimap), axis=0)
       screen = np.array(obs.observation['screen'], dtype=np.float32)
@@ -215,6 +218,7 @@ class A3CAgent(object):
     # Train
     feed = {self.minimap: minimaps,
             self.screen: screens,
+            self.pixel_change: pixel_change,
             self.info: infos,
             self.value_target: value_target,
             self.valid_spatial_action: valid_spatial_action,
