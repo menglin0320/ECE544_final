@@ -15,7 +15,7 @@ from pysc2.env import available_actions_printer
 from pysc2.env import sc2_env
 from pysc2.lib import stopwatch
 import tensorflow as tf
-
+from collections import deque
 from run_loop import run_loop
 
 COUNTER = 0
@@ -48,6 +48,7 @@ flags.DEFINE_bool("profile", False, "Whether to turn on code profiling.")
 flags.DEFINE_bool("trace", False, "Whether to trace the code execution.")
 flags.DEFINE_integer("parallel", 16, "How many instances to run in parallel.")
 flags.DEFINE_bool("save_replay", False, "Whether to save a replay at the end.")
+flags.DEFINE_integer("replay_buffer_size", 2000, "How big is the buffer for q learning")
 
 FLAGS(sys.argv)
 if FLAGS.training:
@@ -59,6 +60,7 @@ else:
   MAX_AGENT_STEPS = 1e5
   DEVICE = ['/cpu:0']
 
+REPLAY_BUFFER_SIZE  = FLAGS.replay_buffer_size
 LOG = FLAGS.log_path+FLAGS.map+'/'+FLAGS.net
 SNAPSHOT = FLAGS.snapshot_path+FLAGS.map+'/'+FLAGS.net
 if not os.path.exists(LOG):
@@ -79,11 +81,20 @@ def run_thread(agent, map_name, visualize):
     visualize=visualize) as env:
     env = available_actions_printer.AvailableActionsPrinter(env)
     #TODO don't discard replay_buffer, sample (20) from (2000)
-    # Only for a single player!
-    replay_buffer = []
     pc_buffer = deque()
+    if FLAGS.training:
+      for recorder, is_done in random_run_loop( env, REPLAY_BUFFER_SIZE)
+        pc_buffer.append(recorder)
+        if is_done:
+          break
+        pc_buffer[-1][3][0].last() = True
+    # Only for a single player!
+    env.reset()
+    replay_buffer = []
     for recorder, is_done in run_loop([agent], env, MAX_AGENT_STEPS):
-      if FLAGS.training:
+        pc_buffer.append(recorder)
+        pc_buffer. popleft()
+
         replay_buffer.append(recorder)
         if is_done:
           counter = 0
@@ -93,7 +104,7 @@ def run_thread(agent, map_name, visualize):
             counter = COUNTER
           # Learning rate schedule
           learning_rate = FLAGS.learning_rate * (1 - 0.9 * counter / FLAGS.max_steps)
-          agent.update(replay_buffer, FLAGS.discount, learning_rate, counter)
+          agent.update(replay_buffer, FLAGS.discount, pc_buffer, learning_rate, counter)
           replay_buffer = []
           if counter % FLAGS.snapshot_step == 1:
             agent.save_model(SNAPSHOT, counter)

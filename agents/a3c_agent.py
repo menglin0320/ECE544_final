@@ -24,7 +24,7 @@ class A3CAgent(object):
     self.ssize = ssize
     self.pcsize = 20
     self.isize = len(actions.FUNCTIONS)
-
+    self._pixel_change_lambda = 0.01
 
   def setup(self, sess, summary_writer):
     self.sess = sess
@@ -50,11 +50,10 @@ class A3CAgent(object):
       # Set inputs of networks
       self.minimap = tf.placeholder(tf.float32, [None, U.minimap_channel(), self.msize, self.msize], name='minimap')
       self.screen = tf.placeholder(tf.float32, [None, U.screen_channel(), self.ssize, self.ssize], name='screen')
-      self.pixel_change = tf.placeholder(tf.float32, [None, self.pcsize, self.pcsize], name='pixel_change')
       self.info = tf.placeholder(tf.float32, [None, self.isize], name='info')
 
-      # Build networks
-      net = build_net(self.minimap, self.screen, self.info, self.msize, self.ssize, len(actions.FUNCTIONS), ntype)
+      # Build a3c base networks
+      net = build_net(self.minimap, self.screen, self.info, self.msize, self.ssize, len(actions.FUNCTIONS), ntype, reuse = False)
       self.spatial_action, self.non_spatial_action, self.value = net
 
       # Set targets and masks
@@ -85,9 +84,30 @@ class A3CAgent(object):
       self.summary.append(tf.summary.scalar('value_loss', value_loss))
 
       # TODO: policy penalty
-      loss = policy_loss + value_loss
+      a3c_loss = policy_loss + value_loss
 
+      #pc_part_start
+      self.pc_minimap = tf.placeholder(tf.float32, [None, U.minimap_channel(), self.msize, self.msize], name='minimap')
+      self.pc_screen = tf.placeholder(tf.float32, [None, U.screen_channel(), self.ssize, self.ssize], name='screen')
+      self.pc_info = tf.placeholder(tf.float32, [None, self.isize], name='info')
+      self.valid_non_spatial_action = tf.placeholder(tf.float32, [None, len(actions.FUNCTIONS)], name='valid_non_spatial_action')
+
+      pc_net = build_pc_net(self.pc_minimap, self.pc_screen, self.pc_info, self.msize, self.ssize, len(actions.FUNCTIONS),self.valid_non_spatial_action)
+      pc_q, pc_q_max = pc_net
+      pc_a = tf.placeholder("float", [None, len(actions.FUNCTIONS)])
+      pc_a_reshaped = tf.reshape(self.pc_a, [-1, 1, 1, len(actions.FUNCTIONS)])
+
+      # Extract Q for taken action
+      pc_qa_ = tf.multiply(self.pc_q, pc_a_reshaped)
+      pc_qa = tf.reduce_sum(pc_qa_, reduction_indices=3, keep_dims=False)
+      # (-1, 20, 20)
+        
+      # TD target for Q
+      self.pc_r = tf.placeholder("float", [None, 20, 20])
+      pc_loss = self._pixel_change_lambda * tf.nn.l2_loss(self.pc_r - pc_qa)
+    
       # Build the optimizer
+      loss = pc_loss + a3c_loss
       self.learning_rate = tf.placeholder(tf.float32, None, name='learning_rate')
       opt = tf.train.RMSPropOptimizer(self.learning_rate, decay=0.99, epsilon=1e-10)
       grads = opt.compute_gradients(loss)
@@ -149,8 +169,9 @@ class A3CAgent(object):
     return actions.FunctionCall(act_id, act_args)
 
 
-  def update(self, rbs, disc, lr, cter):
+  def update(self, rbs, replay_buffer, disc, lr, cter):
     # Compute R, which is value of the last observation
+    buffer_size = len(replay_buffer)
     obs = rbs[-1][-1]
     if obs.last():
       R = 0
@@ -226,8 +247,57 @@ class A3CAgent(object):
             self.valid_non_spatial_action: valid_non_spatial_action,
             self.non_spatial_action_selected: non_spatial_action_selected,
             self.learning_rate: lr}
-    _, summary = self.sess.run([self.train_op, self.summary_op], feed_dict=feed)
+    # _, summary = self.sess.run([self.train_op, self.summary_op], feed_dict=feed)
+    # self.summary_writer.add_summary(summary, cter)
+    ######################################################################################
+    # Update the pc network
+    pc_experience_frames = self.sample_sequence(self.local_t_max + 1)
+    start_pos = np.random.randint(0, buffer_size - self.sequence_size - 1)
+
+    if obs[start_pos]..last():
+      start_pos += 1
+      # Assuming that there are no successive terminal frames.
+
+    pc_experience_frames = []
+    
+    for i in range(self.sequence_size):
+      frame = obs[start_pos+i]
+      pc_experience_frames.append(frame)
+      if frame.last():
+        break
+    # Reverse sequence to calculate from the last
+    pc_experience_frames.reverse()
+
+    batch_pc_si = []
+    batch_pc_a = []
+    batch_pc_R = []
+    pc_R = np.zeros([20,20], dtype=np.float32)
+    if not pc_experience_frames[1].last():
+      # pc_R = self.run_pc_q_max(self.sess, pc_experience_frames[0].state)
+      # def run_pc_q_max(self, sess, s_t):
+      pc_R = self.sess.run(self.pc_q_max,
+                          feed_dict = {self.pc_input: pc_experience_frames[0].state})
+    for frame in pc_experience_frames[1:]:
+      pc_R = frame.pixel_change + self.gamma_pc * pc_R
+      a = np.zeros([self.action_size])
+      a[frame.action] = 1.0
+      batch_pc_si.append(frame.state)
+      batch_pc_a.append(a)
+      batch_pc_R.append(pc_R)
+
+    batch_pc_si.reverse()
+    batch_pc_a.reverse()
+    batch_pc_R.reverse()
+
+    pc_feed_dict = {
+        self.pc_input: batch_pc_si,
+        self.pc_a: batch_pc_a,
+        self.pc_r: batch_pc_R
+    }
+    feed.update(pc_feed_dict)
+    _, summary = self.sess.run([self.train_op, self.summary_op], feed_dict = feed)
     self.summary_writer.add_summary(summary, cter)
+
 
 
   def save_model(self, path, count):

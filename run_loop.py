@@ -58,17 +58,18 @@ def random_run_loop( env, max_frames=0):
   try:
     while True:
       num_frames = 0
+      #initialize timesteps
       timesteps = env.reset()
       for a in agents:
         a.reset()
       while True:
         num_frames += 1
         last_timesteps = timesteps
-        actions = [U.random_run() for agent, timestep in zip(agents, timesteps)]
+        actions = [U.random_run(timesteps[0]),]
         timesteps = env.step(actions)
         pixel_change = calc_pixel_change(timesteps, last_timesteps)
         # Only for a single player!
-        is_done = (num_frames >= max_frames) or timesteps[0].last()
+        is_done = (num_frames >= max_frames)
         yield [last_timesteps[0], actions[0], pixel_change[0], timesteps[0]], is_done
         if is_done:
           break

@@ -80,13 +80,13 @@ def screen_channel():
       c += features.SCREEN_FEATURES[i].scale
   return c
 
-def random_run():
+def random_run(obs):
+  valid_actions = obs.observation['available_actions']
   act_id = np.random.choice(valid_actions)
 
-  dy = np.random.randint(-4, 5)
-  target[0] = int(max(0, min(self.ssize-1, target[0]+dy)))
-  dx = np.random.randint(-4, 5)
-  target[1] = int(max(0, min(self.ssize-1, target[1]+dx)))
+  target[0] = np.random.randint(0, 63)
+  target[1] = np.random.randint(0, 63)
+
   act_args = []
     for arg in actions.FUNCTIONS[act_id].args:
       if arg.name in ('screen', 'minimap', 'screen2'):
