@@ -74,7 +74,7 @@ class A3CAgent(object):
       self.summary.append(tf.summary.histogram('spatial_action_prob', spatial_action_prob))
       self.summary.append(tf.summary.histogram('non_spatial_action_prob', non_spatial_action_prob))
 
-      # Compute losses, more details in https://arxiv.org/abs/1602.01783
+      # Compute a3closses, more details in https://arxiv.org/abs/1602.01783
       # Policy loss and value loss
       action_log_prob = self.valid_spatial_action * spatial_action_log_prob + non_spatial_action_log_prob
       advantage = tf.stop_gradient(self.value_target - self.value)
@@ -87,12 +87,12 @@ class A3CAgent(object):
       a3c_loss = policy_loss + value_loss
 
       #pc_part_start
-      self.pc_minimap = tf.placeholder(tf.float32, [None, U.minimap_channel(), self.msize, self.msize], name='minimap')
-      self.pc_screen = tf.placeholder(tf.float32, [None, U.screen_channel(), self.ssize, self.ssize], name='screen')
+      self.pc_minimap = tf.placeholder(tf.float32, [None, U.minimap_channel(), self.msize, self.msize], name='pc_minimap')
+      self.pc_screen = tf.placeholder(tf.float32, [None, U.screen_channel(), self.ssize, self.ssize], name='pc_screen')
       self.pc_info = tf.placeholder(tf.float32, [None, self.isize], name='info')
-      self.valid_non_spatial_action = tf.placeholder(tf.float32, [None, len(actions.FUNCTIONS)], name='valid_non_spatial_action')
+      self.pc_valid_non_spatial_action = tf.placeholder(tf.float32, [None, len(actions.FUNCTIONS)], name='pc_valid_non_spatial_action')
 
-      pc_net = build_pc_net(self.pc_minimap, self.pc_screen, self.pc_info, self.msize, self.ssize, len(actions.FUNCTIONS),self.valid_non_spatial_action)
+      pc_net = build_pc_net(self.pc_minimap, self.pc_screen, self.pc_info, self.msize, self.ssize, len(actions.FUNCTIONS),self.pc_valid_non_spatial_action)
       pc_q, pc_q_max = pc_net
       pc_a = tf.placeholder("float", [None, len(actions.FUNCTIONS)])
       pc_a_reshaped = tf.reshape(self.pc_a, [-1, 1, 1, len(actions.FUNCTIONS)])
@@ -251,19 +251,18 @@ class A3CAgent(object):
     # self.summary_writer.add_summary(summary, cter)
     ######################################################################################
     # Update the pc network
-    pc_experience_frames = self.sample_sequence(self.local_t_max + 1)
     start_pos = np.random.randint(0, buffer_size - self.sequence_size - 1)
-
-    if obs[start_pos]..last():
+    #take care of terminals
+    if replay_buffer[start_pos][-1].last():
       start_pos += 1
       # Assuming that there are no successive terminal frames.
 
     pc_experience_frames = []
     
-    for i in range(self.sequence_size):
-      frame = obs[start_pos+i]
+    for i in range(self.sequence_size+1):
+      frame = replay_buffer[start_pos+i]
       pc_experience_frames.append(frame)
-      if frame.last():
+      if frame[-1].last():
         break
     # Reverse sequence to calculate from the last
     pc_experience_frames.reverse()
@@ -271,28 +270,45 @@ class A3CAgent(object):
     batch_pc_si = []
     batch_pc_a = []
     batch_pc_R = []
+    batch_pc_va = []
     pc_R = np.zeros([20,20], dtype=np.float32)
     if not pc_experience_frames[1].last():
       # pc_R = self.run_pc_q_max(self.sess, pc_experience_frames[0].state)
       # def run_pc_q_max(self, sess, s_t):
+      minimap = np.array(obs.observation['minimap'], dtype=np.float32)
+      minimap = np.expand_dims(U.preprocess_minimap(minimap), axis=0)
+      screen = np.array(obs.observation['screen'], dtype=np.float32)
+      screen = np.expand_dims(U.preprocess_screen(screen), axis=0)
+      # TODO: only use available actions
+      info = np.zeros([1, self.isize], dtype=np.float32)
+      info[0, obs.observation['available_actions']] = 1
+      s_feed = {self.pc_minimap: minimap,
+              self.pc_screen: screen,
+              self.pc_info: info}
       pc_R = self.sess.run(self.pc_q_max,
-                          feed_dict = {self.pc_input: pc_experience_frames[0].state})
-    for frame in pc_experience_frames[1:]:
-      pc_R = frame.pixel_change + self.gamma_pc * pc_R
+                          s_feed)
+    pc_valid_non_spatial_action = np.zeros([len(rbs), len(actions.FUNCTIONS)], dtype=np.float32)
+    for i, [obs, action, pixel_change, next_obs] in enumerate(pc_experience_frames[1:]):
+      pc_R = pixel_change + self.gamma_pc * pc_R
       a = np.zeros([self.action_size])
-      a[frame.action] = 1.0
+      a[action] = 1.0
+      valid_actions = np.zeros((len(actions.FUNCTIONS)),dtype = np.float32)
+      valid_actions_inds = obs.observation["available_actions"]
+      valid_actions[valid_actions_inds] = 1
       batch_pc_si.append(frame.state)
       batch_pc_a.append(a)
       batch_pc_R.append(pc_R)
-
+      batch_pc_va.append(valid_actions)
+    
     batch_pc_si.reverse()
     batch_pc_a.reverse()
     batch_pc_R.reverse()
-
+    batch_pc_va.reverse
     pc_feed_dict = {
         self.pc_input: batch_pc_si,
         self.pc_a: batch_pc_a,
-        self.pc_r: batch_pc_R
+        self.pc_r: batch_pc_R,
+        self.pc_valid_non_spatial_action: batch_pc_va
     }
     feed.update(pc_feed_dict)
     _, summary = self.sess.run([self.train_op, self.summary_op], feed_dict = feed)
